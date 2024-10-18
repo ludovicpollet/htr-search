@@ -6,7 +6,6 @@ from whoosh.fields import ID, TEXT, STORED, Schema
 from whoosh.index import create_in, exists_in, open_dir
 from whoosh.qparser import QueryParser, FuzzyTermPlugin
 
-
 def create_search_index(index_dir: str, documents: List[Dict[str, Any]]) -> None:
     """
     Creates or updates a Whoosh index in the specified directory using the provided documents.
@@ -58,7 +57,7 @@ def search_index(index_dir: str, query_str: str) -> List[str]:
         query_str (str): The query string to search for.
 
     Returns:
-        List[str]: List of document paths that match the query.
+        List[Dict[str, Any]]: List of dictionaries containing line data with highlighted content.
     """
     if not exists_in(index_dir):
         logging.error(f"No index found in '{index_dir}'.")
@@ -70,16 +69,19 @@ def search_index(index_dir: str, query_str: str) -> List[str]:
     q = qp.parse(query_str)
 
     with idx.searcher() as searcher:
-        results = searcher.search(q, limit=None, scored=True)
+        results = searcher.search(q, limit=None, scored=True, terms=True)
         logging.debug(f"Found {len(results)} results for query '{query_str}'.")
+        
         matching_lines = []
         for hit in results:
+            matched_terms = [term.decode('utf-8') for _, term in hit.matched_terms()]
             line = {
                 'doc_path': hit['doc_path'],
                 'line_id': hit['line_id'],
                 'content': hit['content'],
+                'matched_terms': matched_terms,
                 'coords': hit['coords'],
-                'score': hit.score
+                'score': hit.score,
             }
             matching_lines.append(line)
         return matching_lines
