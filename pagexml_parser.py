@@ -1,5 +1,5 @@
 from lxml import etree
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 
 def parse_pagexml(file_path: str) -> List[Dict[str, Any]]:
@@ -32,7 +32,7 @@ def parse_pagexml(file_path: str) -> List[Dict[str, Any]]:
         if coords_element is not None:
             points = coords_element.get("points")
             if points:
-                coords: List[Tuple[int, int]] = [
+                coords = [
                     tuple(map(int, point.split(",")))
                     for point in points.strip().split()
                 ]

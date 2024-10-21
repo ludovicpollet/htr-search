@@ -1,7 +1,17 @@
 from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import QPointF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QMouseEvent, QPaintEvent, QPainter, QPen, QPixmap, QPolygonF
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QMouseEvent,
+    QPainter,
+    QPaintEvent,
+    QPen,
+    QPixmap,
+    QPolygonF,
+    QResizeEvent,
+)
 from PySide6.QtWidgets import QWidget
 
 
@@ -91,15 +101,17 @@ class ImageWidget(QWidget):
             event (QPaintEvent): The paint event.
         """
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         if self.original_pixmap:
             # Scale the pixmap to fit the widget size
             scaled_pixmap = self.original_pixmap.scaled(
-                self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+                self.size(),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
             )
             # Draw the pixmap at the center
-            pixmap_x = (self.width() - scaled_pixmap.width()) / 2
-            pixmap_y = (self.height() - scaled_pixmap.height()) / 2
+            pixmap_x = int((self.width() - scaled_pixmap.width()) / 2)
+            pixmap_y = int((self.height() - scaled_pixmap.height()) / 2)
             painter.drawPixmap(pixmap_x, pixmap_y, scaled_pixmap)
 
             # Draw the polygons
@@ -107,7 +119,9 @@ class ImageWidget(QWidget):
                 if polygon:
                     if idx == self.selected_index:
                         # Highlighted polygon
-                        pen = QPen(QColor(0, 255, 0, 200), 2)  # Green for selected polygon
+                        pen = QPen(
+                            QColor(0, 255, 0, 200), 2
+                        )  # Green for selected polygon
                         brush = QBrush(QColor(0, 255, 0, 50))
                     else:
                         pen = QPen(QColor(255, 0, 0, 200), 2)  # Red for other polygons
@@ -117,7 +131,7 @@ class ImageWidget(QWidget):
                     painter.drawPolygon(polygon)
         painter.end()
 
-    def resizeEvent(self, event) -> None:
+    def resizeEvent(self, event: QResizeEvent) -> None:
         """
         Handle the widget resize event.
 
@@ -143,7 +157,9 @@ class ImageWidget(QWidget):
         clicked_point = QPointF(x, y)
 
         for idx, polygon in enumerate(self.polygons):
-            if polygon and polygon.containsPoint(clicked_point, Qt.OddEvenFill):
+            if polygon and polygon.containsPoint(
+                clicked_point, Qt.FillRule.OddEvenFill
+            ):
                 self.selected_index = idx
                 self.selected_line_changed.emit(idx)
                 self.update()

@@ -1,9 +1,9 @@
 import os
 import re
 from html import escape
-from typing import Any, Dict, List
+from typing import Union, Any, Dict, List, Match
 
-from PySide6.QtCore import QSize, Qt, QModelIndex
+from PySide6.QtCore import QSize, Qt, QModelIndex, QPersistentModelIndex
 from PySide6.QtGui import (
     QAbstractTextDocumentLayout,
     QPalette,
@@ -25,7 +25,6 @@ from PySide6.QtWidgets import (
     QStyledItemDelegate,
     QVBoxLayout,
     QWidget,
-    QStyleOptionViewItem,
 )
 
 from image_widget import ImageWidget
@@ -36,7 +35,10 @@ class HTMLDelegate(QStyledItemDelegate):
     """Custom item delegate to render HTML content in QListWidget items."""
 
     def paint(
-        self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex
+        self,
+        painter: QPainter,
+        option: Any,
+        index: Union[QModelIndex, QPersistentModelIndex],
     ) -> None:
         """
         Paint the item with HTML content and handle selection highlighting.
@@ -47,8 +49,7 @@ class HTMLDelegate(QStyledItemDelegate):
             index (QModelIndex): The model index of the item to be painted.
         """
         # Get the data to be displayed
-        text = index.data(Qt.DisplayRole)
-
+        text = index.data(Qt.ItemDataRole.DisplayRole)
         # Create a QTextDocument for the HTML text
         doc = QTextDocument()
         doc.setDefaultFont(option.font)
@@ -57,13 +58,13 @@ class HTMLDelegate(QStyledItemDelegate):
 
         # Disable word wrapping in the QTextDocument
         text_option = QTextOption()
-        text_option.setWrapMode(QTextOption.NoWrap)
+        text_option.setWrapMode(QTextOption.WrapMode.NoWrap)
         doc.setDefaultTextOption(text_option)
 
         painter.save()
 
         # Handle selection background using Qt's default
-        if option.state & QStyle.State_Selected:
+        if option.state & QStyle.StateFlag.State_Selected:
             painter.fillRect(option.rect, option.palette.highlight())
 
         # Translate the painter to the item's top-left corner
@@ -71,21 +72,25 @@ class HTMLDelegate(QStyledItemDelegate):
 
         # Create a PaintContext
         ctx = QAbstractTextDocumentLayout.PaintContext()
-        if option.state & QStyle.State_Selected:
+        if option.state & QStyle.StateFlag.State_Selected:
             # Set text color to highlighted text color
-            ctx.palette.setColor(
-                QPalette.Text, option.palette.highlightedText().color()
+            ctx.palette.setColor( # type: ignore
+                QPalette.ColorRole.Text, option.palette.highlightedText().color()
             )
         else:
             # Set text color to normal text color
-            ctx.palette.setColor(QPalette.Text, option.palette.text().color())
+            ctx.palette.setColor(QPalette.ColorRole.Text, option.palette.text().color()) # type: ignore
 
         # Draw the document
         doc.documentLayout().draw(painter, ctx)
 
         painter.restore()
 
-    def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:
+    def sizeHint(
+        self,
+        option: Any,
+        index: Union[QModelIndex, QPersistentModelIndex],
+    ) -> QSize:
         """
         Provide the size hint for the item based on its HTML content.
 
@@ -97,7 +102,7 @@ class HTMLDelegate(QStyledItemDelegate):
             QSize: The size hint for the item.
         """
         # Get the data to be displayed
-        text = index.data(Qt.DisplayRole)
+        text = index.data(Qt.ItemDataRole.DisplayRole)
 
         # Create a QTextDocument for the HTML text
         doc = QTextDocument()
@@ -107,7 +112,7 @@ class HTMLDelegate(QStyledItemDelegate):
 
         # Disable word wrapping in the QTextDocument
         text_option = QTextOption()
-        text_option.setWrapMode(QTextOption.NoWrap)
+        text_option.setWrapMode(QTextOption.WrapMode.NoWrap)
         doc.setDefaultTextOption(text_option)
 
         doc_size = doc.size().toSize()
@@ -120,7 +125,7 @@ class HTMLDelegate(QStyledItemDelegate):
 
 
 class MainWindow(QWidget):
-    def __init__(self, index_dir: str = "index_dir", image_extension: str = ".jpeg"):
+    def __init__(self, index_dir: str = "index_dir", image_extension: str = ".jpg"):
         """
         Initialize the main window.
 
@@ -160,7 +165,7 @@ class MainWindow(QWidget):
         # Results list (list of documents)
         self.results_list = QListWidget()
         self.results_list.setMaximumHeight(150)
-        self.results_list.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.results_list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.results_list.itemClicked.connect(self.display_result)
 
         # Content layout (horizontal)
@@ -169,7 +174,7 @@ class MainWindow(QWidget):
         # Image display widget
         self.image_widget = ImageWidget()
         self.image_widget.setMinimumSize(400, 300)
-        self.image_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.image_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         # Text panel (list of matching lines)
         self.text_list = QListWidget()
@@ -179,7 +184,7 @@ class MainWindow(QWidget):
         self.text_list.setWordWrap(False)
         self.text_list.setSpacing(2)
         self.text_list.setMinimumWidth(200)
-        self.text_list.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.text_list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         # Add widgets to content layout with stretch factors
         content_layout.addWidget(self.image_widget, stretch=3)
@@ -264,7 +269,7 @@ class MainWindow(QWidget):
         self.original_pixmap = QPixmap(self.image_file_path)
         if self.original_pixmap.isNull():
             self.image_widget.clear()
-            self.status_label.setText("Image not found.")
+            self.status_label.setText(f"Image '{self.image_file_path}' not found.")
             return
 
         # Get the matching lines for the selected document
@@ -309,7 +314,7 @@ class MainWindow(QWidget):
         pattern = r"\b(" + "|".join(terms) + r")\b"
 
         # Function to wrap matched term in <strong> tags for bold styling
-        def repl(match):
+        def repl(match: Match[str]) -> str:
             return f"<strong>{match.group(0)}</strong>"
 
         # Replace matched terms with highlighted versions
