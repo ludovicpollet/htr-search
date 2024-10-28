@@ -1,6 +1,7 @@
 import argparse
 import logging
 import sys
+import os.path
 
 from PySide6.QtWidgets import QApplication
 
@@ -9,10 +10,10 @@ from indexer import optimize_index, update_index
 
 
 def get_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Index PageXML files and start GUI.")
+    parser = argparse.ArgumentParser(description="A small programm with a CLI to index a corpus of pageXML documents and a simple GUI to search them.")
     action_group = parser.add_mutually_exclusive_group(required=True)
     action_group.add_argument(
-        "--index", "-i", action="store_true", help="Update or create the index."
+        "--index", "-i", action="store_true", help="Update or create the index and exit."
     )
     action_group.add_argument(
         "--optimize-index", action="store_true", help="Optimize the index and exit."
@@ -22,13 +23,17 @@ def get_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--xml-dir",
-        default="xml_dir",
-        help="Directory containing XML files to index.",
+        default="sample_data",
+        help="Directory containing where the XML files and the images are stored.",
     )
     parser.add_argument(
-        "--index-dir",
-        default="index_dir",
-        help="Directory where the search index will be stored.",
+        "--image-dir",
+        help="Directory containing the images. If not provided, the program will try looking for them in the XML directory."
+    )
+    parser.add_argument(
+        "--index-name",
+        default="default_index",
+        help="Name of the index to be stored, updated or searched.",
     )
     parser.add_argument(
         "--verbose",
@@ -48,17 +53,19 @@ def main():
         format="%(levelname)s: %(message)s",
     )
 
+    index_dir = os.path.join("indexes", args.index_name)
+
     if args.optimize_index:
-        optimize_index(args.index_dir)
+        optimize_index(index_dir)
         sys.exit()
 
     if args.index:
-        update_index(args.index_dir, args.xml_dir)
+        update_index(index_dir, args.xml_dir, args.image_dir)
         sys.exit()
 
     if args.search:
         app = QApplication(sys.argv)
-        window = MainWindow()
+        window = MainWindow(index_dir=index_dir)
         window.show()
         sys.exit(app.exec())
 

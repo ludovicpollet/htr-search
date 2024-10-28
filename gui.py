@@ -1,4 +1,3 @@
-import os
 import re
 from html import escape
 from typing import Union, Any, Dict, List, Match
@@ -125,7 +124,7 @@ class HTMLDelegate(QStyledItemDelegate):
 
 
 class MainWindow(QWidget):
-    def __init__(self, index_dir: str = "index_dir", image_extension: str = ".jpg"):
+    def __init__(self, index_dir: str):
         """
         Initialize the main window.
 
@@ -138,12 +137,11 @@ class MainWindow(QWidget):
         self.resize(1600, 1200)
         self.current_query: str = ""
         self.index_dir: str = index_dir
-        self.image_extension: str = image_extension
         self.matching_lines: List[Dict[str, Any]] = []
         self.image_file_path: str = ""
         self.original_pixmap: QPixmap = QPixmap()
         self.search_results: List[str] = []
-        self.doc_lines: Dict[str, List[Dict[str, Any]]] = {}
+        self.document_data:  Dict[str, Dict[str, Any]] = {}
         self.setup_ui()
 
     def setup_ui(self) -> None:
@@ -220,7 +218,7 @@ class MainWindow(QWidget):
         self.text_list.clear()
         self.status_label.clear()
         self.search_results = []
-        self.doc_lines = {}
+        self.document_data = {}
 
         # Search the index for matching lines
         try:
@@ -243,11 +241,10 @@ class MainWindow(QWidget):
         # Prepare the data in each document for display
         for document_path, data in sorted_documents:
             num_lines = data["num_lines"]
-            lines = data["lines"]
             item_text = f"{document_path} ({num_lines} matching lines)"
             self.results_list.addItem(item_text)
             self.search_results.append(document_path)
-            self.doc_lines[document_path] = lines
+            self.document_data[document_path] = data
 
         # Update status text
         self.status_label.setText(
@@ -262,8 +259,7 @@ class MainWindow(QWidget):
         """
         selected_index = self.results_list.row(item)
         xml_file_path = self.search_results[selected_index]
-        base_name, _ = os.path.splitext(xml_file_path)
-        self.image_file_path = f"{base_name}{self.image_extension}"
+        self.image_file_path = self.document_data[xml_file_path]['image_path']
 
         # Load the image
         self.original_pixmap = QPixmap(self.image_file_path)
@@ -273,7 +269,7 @@ class MainWindow(QWidget):
             return
 
         # Get the matching lines for the selected document
-        self.matching_lines = self.doc_lines.get(xml_file_path, [])
+        self.matching_lines = self.document_data[xml_file_path]["lines"]
 
         # Pass the image and matching lines to the image widget
         self.image_widget.set_image_and_lines(self.original_pixmap, self.matching_lines)

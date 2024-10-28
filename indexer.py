@@ -1,14 +1,14 @@
-# pyright: reportMissingTypeStubs=false
 import hashlib
 import json
 import logging
 import os
-from typing import Optional, Any, Dict, List
+from typing import Any, Dict, List
 
 from tqdm import tqdm
-from whoosh.fields import ID, STORED, TEXT, Schema
+from whoosh.fields import ID, STORED, TEXT, Schema  # type: ignore
 from whoosh.index import Index, create_in, exists_in, open_dir  # type: ignore
-from whoosh.qparser import FuzzyTermPlugin, QueryParser
+from whoosh.qparser import FuzzyTermPlugin, QueryParser  # type: ignore
+from whoosh.query import Query  # type: ignore
 
 from pagexml_parser import parse_pagexml
 
@@ -51,21 +51,22 @@ def load_index_meta(index_dir: str) -> Dict[str, float]:
 
 
 def open_or_create_search_index(index_dir: str) -> Index:
-    """Creates or open a Whoosh index in the specified directory. Will create the directory if it doesn't exist."""
+    """Open or create a Whoosh index in the specified directory. Will create the directory if it doesn't exist."""
 
     if not os.path.isdir(index_dir):
         os.makedirs(index_dir)
-        logging.debug(f"Created index directory '{index_dir}'.")
+        logging.info(f"Created index directory '{index_dir}'.")
 
     schema: Schema = Schema(
         doc_path=ID(stored=True),
         line_id=ID(stored=True, unique=True),
         content=TEXT(stored=True),
         coords=STORED,  # not indexed
+        image_path=STORED,
     )
 
     if exists_in(index_dir):
-        ix = open_dir(index_dir)
+        ix: Index = open_dir(index_dir)
         logging.info(f"Opened existing index in '{index_dir}' for updating.")
     else:
         ix = create_in(index_dir, schema)
@@ -74,15 +75,27 @@ def open_or_create_search_index(index_dir: str) -> Index:
     return ix
 
 
-def get_xml_documents(document_dir: str) -> Optional[List[Dict[str, Any]]]:
+def get_lines_from_documents(
+    document_dir: str, image_dir: str | None
+) -> List[Dict[str, Any]] | None:
     """Find PageXML files located in xml_dir and parse them."""
 
     if not os.path.isdir(document_dir):
         logging.error(
             f"XML directory '{document_dir}' does not exist or is not a directory."
         )
-        return
+        return None
 
+    if image_dir is not None and not os.path.isdir(image_dir):
+        logging.error(
+            f"The specified directory '{image_dir} does not exist or is not a directory."
+        )
+        return None
+
+    if image_dir is None:
+        image_dir = document_dir
+
+    # Gather all XML paths
     xml_paths: List[str] = [
         os.path.join(root, file)
         for root, _dirs, files in os.walk(document_dir)
@@ -92,7 +105,22 @@ def get_xml_documents(document_dir: str) -> Optional[List[Dict[str, Any]]]:
 
     if not xml_paths:
         logging.info("No XML files found to index.")
-        return
+        return None
+
+    # Create a dict to map basenames to image paths
+    image_dict: Dict[str, str] = {}
+    allowed_image_extensions = {".jpg", ".jpeg", ".tif", ".tiff"}
+    for root, _, files in os.walk(image_dir):
+        for file in files:
+            if os.path.splitext(file)[1].lower() in allowed_image_extensions:
+                basename = os.path.splitext(file)[0].lower()
+                image_path = os.path.join(root, file)
+                if basename not in image_dict:
+                    image_dict[basename] = image_path
+                else:
+                    logging.warning(
+                        f"Multiple images found for basename '{basename}'; using the first match."
+                    )
 
     documents: List[Dict[str, Any]] = []
 
@@ -100,17 +128,26 @@ def get_xml_documents(document_dir: str) -> Optional[List[Dict[str, Any]]]:
         try:
             lines = parse_pagexml(xml_path)
             if lines:
-                document = {"path": xml_path, "lines": lines}
-                documents.append(document)
+                basename = os.path.splitext(os.path.basename(xml_path))[0].lower()
+                image_path = image_dict.get(basename)
+                if image_path is not None:
+                    document = {
+                        "path": xml_path,
+                        "image_path": image_dict[basename],
+                        "lines": lines,
+                    }
+                    documents.append(document)
+                else:
+                    logging.debug(f"No image match found for {xml_path}. Skipping it.")
             else:
-                logging.info(f"No lines found in '{xml_path}'")
+                logging.debug(f"No lines found in {xml_path}. Skipping it.")
         except Exception:
-            logging.exception(f"Error parsing '{xml_path}'")
+            logging.exception(f"Error parsing '{xml_path}'. Skipping it.")
 
     return documents
 
 
-def update_index(index_dir: str, document_dir: str) -> None:
+def update_index(index_dir: str, document_dir: str, image_dir: str | None) -> None:
     """
     Creates or updates a Whoosh index in the specified directory using the provided documents.
     If index metadata exists in the directory, files that have not been touched after the last indexing are skipped.
@@ -122,7 +159,7 @@ def update_index(index_dir: str, document_dir: str) -> None:
     """
     ix = open_or_create_search_index(index_dir)
 
-    documents = get_xml_documents(document_dir)
+    documents = get_lines_from_documents(document_dir, image_dir)
 
     if not documents:
         logging.info("No documents to index.")
@@ -140,7 +177,7 @@ def update_index(index_dir: str, document_dir: str) -> None:
     # Add all the lines and document to the writer transaction
     for doc in tqdm(documents, desc="Indexing documents", position=0):
         doc_path = doc["path"]
-
+        image_path = doc["image_path"]
         last_modified = os.path.getmtime(doc_path)
         if doc_path in meta and meta[doc_path] >= last_modified:
             logging.debug(f"Skipping unchanged file: {doc_path}")
@@ -161,6 +198,7 @@ def update_index(index_dir: str, document_dir: str) -> None:
                 line_id=line_id,
                 content=content,
                 coords=coords,
+                image_path=image_path,
             )
             new_line_counter += 1
             logging.debug(f"Added/updated line ID: {line_id}")
@@ -202,7 +240,7 @@ def search_index(index_dir: str, query_str: str) -> List[Dict[str, Any]]:
     ix: Any = open_dir(index_dir)
     qp: Any = QueryParser("content", schema=ix.schema)
     qp.add_plugin(FuzzyTermPlugin())
-    q = qp.parse(query_str)
+    q: Query = qp.parse(query_str)
 
     with ix.searcher() as searcher:
         results = searcher.search(q, limit=None, scored=True, terms=True)
@@ -220,6 +258,7 @@ def search_index(index_dir: str, query_str: str) -> List[Dict[str, Any]]:
                 "content": hit["content"],
                 "matched_terms": matched_terms,
                 "coords": hit["coords"],
+                "image_path": hit["image_path"],
                 "score": hit.score,  # not used yet
             }
             matching_lines.append(line)
@@ -229,7 +268,7 @@ def search_index(index_dir: str, query_str: str) -> List[Dict[str, Any]]:
 def count_documents(index_dir: str) -> int:
     ix: Any = open_dir(index_dir)
     with ix.searcher() as searcher:
-        total_docs = searcher.doc_count()
+        total_docs: int = searcher.doc_count()
     return total_docs
 
 
@@ -285,8 +324,9 @@ def group_lines_by_document(
     doc_dict: Dict[str, Dict[str, Any]] = {}
     for line in matching_lines:
         doc_path = line["doc_path"]
+        image_path = line["image_path"]
         if doc_path not in doc_dict:
-            doc_dict[doc_path] = {"lines": [], "num_lines": 0}
+            doc_dict[doc_path] = {"image_path": image_path, "lines": [], "num_lines": 0}
         doc_dict[doc_path]["lines"].append(line)
         doc_dict[doc_path]["num_lines"] += 1
     return doc_dict
